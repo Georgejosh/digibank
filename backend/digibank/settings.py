@@ -260,6 +260,10 @@ EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)
 EMAIL_HOST_USER = env("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", "")
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER or "no-reply@digibank.local")
+# Sender for login codes via Resend. The default test sender only delivers to
+# the Resend account owner; verify your own domain in Resend and set e.g.
+# OTP_FROM_EMAIL="DigiBank <no-reply@yourdomain.com>" to email every user.
+OTP_FROM_EMAIL = env("OTP_FROM_EMAIL", "DigiBank <onboarding@resend.dev>")
 EMAIL_BACKEND = (
     "django.core.mail.backends.smtp.EmailBackend"
     if EMAIL_HOST_USER

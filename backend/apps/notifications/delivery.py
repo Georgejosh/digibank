@@ -95,7 +95,7 @@ def _deliver_email(user, code, purpose):
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
         }
         data = json.dumps({
-            "from": "DigiBank <onboarding@resend.dev>",
+            "from": settings.OTP_FROM_EMAIL,
             "to": [user.email],
             "subject": _subject(purpose),
             "html": f"<p>Hi {user.name},</p><p>Your DigiBank code is: <strong>{code}</strong></p><p>Use it to {PURPOSE_TEXT.get(purpose, 'continue')}. It expires in {settings.OTP_VALIDITY_MINUTES} minutes and can only be used once.</p>"
