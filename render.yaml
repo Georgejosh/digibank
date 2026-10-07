@@ -19,7 +19,8 @@ services:
     rootDir: backend
     buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
     # Free instances have no pre-deploy hook, so migrations run at start-up.
-    startCommand: python manage.py migrate --noinput && gunicorn digibank.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 60
+    # createsuperuser reads DJANGO_SUPERUSER_* below; it fails harmlessly once the admin exists.
+    startCommand: python manage.py migrate --noinput && (python manage.py createsuperuser --noinput || true) && gunicorn digibank.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 60
     healthCheckPath: /api/health/
     envVars:
       - key: PYTHON_VERSION
@@ -56,4 +57,14 @@ services:
       - key: RAZORPAY_KEY_SECRET
         sync: false
       - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false
+      # Admin account for reviewing KYC at https://digibank-api.onrender.com/admin
+      # (free instances have no shell, so it is created at start-up).
+      - key: DJANGO_SUPERUSER_EMAIL
+        sync: false
+      - key: DJANGO_SUPERUSER_PHONE
+        sync: false
+      - key: DJANGO_SUPERUSER_NAME
+        sync: false
+      - key: DJANGO_SUPERUSER_PASSWORD
         sync: false
