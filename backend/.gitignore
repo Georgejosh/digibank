@@ -1,0 +1,23 @@
+# Secrets -- never commit
+.env
+*.pem
+*.key
+
+# Python
+venv/
+__pycache__/
+*.py[cod]
+*.sqlite3
+
+# Django
+staticfiles/
+media/
+
+# Editor / OS
+.vscode/
+.idea/
+Thumbs.db
+digibank.sqlite3
+
+# KYC documents - never commit
+private_media/

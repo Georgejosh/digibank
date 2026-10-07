@@ -1,0 +1,59 @@
+# Render Blueprint: the Django API + a free Postgres database.
+# Render dashboard -> New -> Blueprint -> pick this repo -> Apply.
+#
+# The React frontend is hosted on Vercel (frontend/vercel.json), which proxies
+# /api/* here so the browser sees ONE site and the refresh cookie stays
+# first-party.
+
+databases:
+  - name: digibank-db
+    plan: free
+    databaseName: digibank
+    user: digibank
+
+services:
+  - type: web
+    name: digibank-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
+    # Free instances have no pre-deploy hook, so migrations run at start-up.
+    startCommand: python manage.py migrate --noinput && gunicorn digibank.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 60
+    healthCheckPath: /api/health/
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: DATABASE_URL
+        fromDatabase:
+          name: digibank-db
+          property: connectionString
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: FIELD_ENCRYPTION_KEY
+        generateValue: true
+      - key: DJANGO_DEBUG
+        value: "false"
+      - key: DJANGO_ALLOWED_HOSTS
+        value: .onrender.com,.vercel.app
+      - key: CSRF_TRUSTED_ORIGINS
+        value: https://digibank-api.onrender.com,https://digibank-eta.vercel.app
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://digibank-eta.vercel.app
+      - key: WEBAUTHN_RP_ID
+        value: digibank-eta.vercel.app
+      - key: WEBAUTHN_ORIGINS
+        value: https://digibank-eta.vercel.app
+      - key: OTP_DELIVERY_CHANNEL
+        value: email
+      # Your Resend API key (same value as EMAIL_HOST_PASSWORD in backend/.env).
+      # Render asks for it when you apply the Blueprint; it is never in git.
+      - key: EMAIL_HOST_PASSWORD
+        sync: false
+      # Optional: Razorpay keys for real top-ups. Leave blank to keep top-ups off.
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false

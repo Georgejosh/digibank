@@ -1,0 +1,37 @@
+{
+  "name": "DigiBank - Group Savings",
+  "short_name": "DigiBank",
+  "description": "Save individually or in clubs. Money stays locked until your goal is reached.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F7F9FA",
+  "theme_color": "#145F65",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    { "name": "My goals", "url": "/app/savings" },
+    { "name": "My clubs", "url": "/app/clubs" }
+  ]
+}
