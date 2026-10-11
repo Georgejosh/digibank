@@ -213,7 +213,14 @@ class OtpVerification(models.Model):
 
     @staticmethod
     def hash_code(raw_code):
-        return hashlib.sha256(str(raw_code).encode()).hexdigest()
+        # HMAC-SHA256 keyed with the server secret. A plain SHA-256 of a
+        # 6-digit code falls to brute force in under a second (only a million
+        # possibilities); without the key, a stolen database is useless.
+        import hmac
+
+        from django.conf import settings
+
+        return hmac.new(settings.SECRET_KEY.encode(), str(raw_code).encode(), hashlib.sha256).hexdigest()
 
     @property
     def is_usable(self):
@@ -228,7 +235,9 @@ class OtpVerification(models.Model):
         if not self.is_usable:
             return False
         self.attempts += 1
-        if self.otp_hash == self.hash_code(raw_code):
+        import hmac
+
+        if hmac.compare_digest(self.otp_hash, self.hash_code(raw_code)):  # constant-time
             self.consumed_at = timezone.now()
             self.save(update_fields=["attempts", "consumed_at"])
             return True

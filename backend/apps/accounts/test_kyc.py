@@ -239,3 +239,26 @@ class RazorpayTopUpTests(TestCase):
     def test_amount_limits(self):
         self.assertEqual(self._order(amount=500).status_code, 400)         # below Rs 10
         self.assertEqual(self._order(amount=20_000_000).status_code, 400)  # above Rs 1,00,000
+
+
+class CryptoHardeningTests(TestCase):
+    def test_pan_uses_aes_256_gcm_and_detects_tampering(self):
+        from apps.accounts import crypto
+
+        a, b = crypto.encrypt("ABCPS1234K"), crypto.encrypt("ABCPS1234K")
+        self.assertTrue(a.startswith("v2."))
+        self.assertNotEqual(a, b)  # random nonce: same PAN, different ciphertext
+        self.assertEqual(crypto.decrypt(a), "ABCPS1234K")
+        tampered = a[:-4] + ("AAAA" if not a.endswith("AAAA") else "BBBB")
+        self.assertEqual(crypto.decrypt(tampered), "")
+
+    def test_values_written_before_upgrade_still_decrypt(self):
+        from apps.accounts import crypto
+
+        legacy = crypto._legacy_fernet().encrypt(b"ABCPS1234K").decode()
+        self.assertEqual(crypto.decrypt(legacy), "ABCPS1234K")
+
+    def test_passwords_are_hashed_with_argon2id(self):
+        user = User.objects.create_user(name="Hash Test", email="hash@example.com", phone="9876533333", password="Password123")
+        self.assertTrue(user.password.startswith("argon2$argon2id$"))
+        self.assertTrue(user.check_password("Password123"))

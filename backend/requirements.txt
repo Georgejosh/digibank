@@ -19,3 +19,5 @@ pyOpenSSL==26.4.0
 dj-database-url==3.0.1
 gunicorn==23.0.0
 whitenoise==6.11.0
+argon2-cffi==25.1.0
+argon2-cffi-bindings==25.1.0

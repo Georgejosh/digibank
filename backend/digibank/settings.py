@@ -132,6 +132,17 @@ else:
 # Our own User model replaces Django's. Must be set before the first migrate.
 AUTH_USER_MODEL = "accounts.User"
 
+# Password hashing. Argon2id (winner of the Password Hashing Competition, RFC
+# 9106, OWASP's first choice) is memory-hard: every guess needs tens of MB of
+# RAM, which makes GPU / ASIC cracking rigs far less effective than against
+# PBKDF2 or bcrypt. Existing PBKDF2 hashes keep working and are silently
+# upgraded to Argon2id the next time each user logs in.
+PASSWORD_HASHERS = [
+    "django.contrib.auth.hashers.Argon2PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2SHA1PasswordHasher",
+]
+
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
