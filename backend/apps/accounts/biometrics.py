@@ -43,10 +43,10 @@ from webauthn import (
 )
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
 from webauthn.helpers.structs import (
-    AuthenticatorAttachment,
     AuthenticatorSelectionCriteria,
     AuthenticatorTransport,
     PublicKeyCredentialDescriptor,
+    PublicKeyCredentialHint,
     ResidentKeyRequirement,
     UserVerificationRequirement,
 )
@@ -64,6 +64,21 @@ APPROVAL_TTL = timedelta(minutes=2)
 def _ip(request):
     xff = request.META.get("HTTP_X_FORWARDED_FOR")
     return xff.split(",")[0].strip() if xff else request.META.get("REMOTE_ADDR")
+
+
+def _rp(request):
+    """
+    (rp_id, origin) for this request. The browser's Origin header is used when
+    it is one of WEBAUTHN_ORIGINS, so every configured domain works; anything
+    else falls back to the primary WEBAUTHN_RP_ID. A passkey is always bound to
+    the domain it was created on - that is WebAuthn's anti-phishing guarantee.
+    """
+    from urllib.parse import urlparse
+
+    origin = (request.headers.get("Origin") or "").rstrip("/")
+    if origin in settings.WEBAUTHN_ORIGINS:
+        return urlparse(origin).hostname, [origin]
+    return settings.WEBAUTHN_RP_ID, settings.WEBAUTHN_ORIGINS
 
 
 def _descriptor(cred):
@@ -124,6 +139,7 @@ def _verify_assertion(request, purpose, user=None):
         return None, _bad("This biometric request expired. Please try again.", "challenge_expired")
 
     credential = request.data.get("credential") or {}
+    rp_id, origins = _rp(request)
     cred_id = credential.get("id") or credential.get("rawId")
     query = BiometricCredential.objects.select_related("user").filter(credential_id=cred_id)
     if user is not None:
@@ -136,8 +152,8 @@ def _verify_assertion(request, purpose, user=None):
         verified = verify_authentication_response(
             credential=credential,
             expected_challenge=challenge,
-            expected_rp_id=settings.WEBAUTHN_RP_ID,
-            expected_origin=settings.WEBAUTHN_ORIGINS,
+            expected_rp_id=rp_id,
+            expected_origin=origins,
             credential_public_key=bytes(cred.public_key),
             credential_current_sign_count=cred.sign_count,
             # The whole point: the device must have actually checked the face
@@ -212,8 +228,9 @@ def _serialize(cred):
 def register_options(request):
     user = request.user
     row, raw = _new_challenge(user, BiometricChallenge.Purpose.REGISTER)
+    rp_id, _ = _rp(request)
     options = generate_registration_options(
-        rp_id=settings.WEBAUTHN_RP_ID,
+        rp_id=rp_id,
         rp_name=settings.WEBAUTHN_RP_NAME,
         user_id=f"digibank-user-{user.pk}".encode(),
         user_name=user.email,
@@ -221,11 +238,15 @@ def register_options(request):
         challenge=raw,
         timeout=120_000,
         authenticator_selection=AuthenticatorSelectionCriteria(
-            # PLATFORM = the sensor built into this phone/laptop, not a USB key.
-            authenticator_attachment=AuthenticatorAttachment.PLATFORM,
+            # No attachment restriction: the phone/laptop's own sensor is
+            # preferred (see hints), but a phone reached by QR code also works -
+            # forcing "platform" made enrolment impossible on browsers that do
+            # not report a built-in sensor. REQUIRED user verification still
+            # means the face / fingerprint (or device PIN) must be checked.
             resident_key=ResidentKeyRequirement.PREFERRED,
             user_verification=UserVerificationRequirement.REQUIRED,
         ),
+        hints=[PublicKeyCredentialHint.CLIENT_DEVICE, PublicKeyCredentialHint.HYBRID],
         exclude_credentials=[_descriptor(c) for c in user.biometric_credentials.all()],
     )
     return _options_response(row, options)
@@ -241,19 +262,20 @@ def register_verify(request):
 
     credential = request.data.get("credential") or {}
     device_name = (request.data.get("device_name") or "This device").strip()[:80]
+    rp_id, origins = _rp(request)
     try:
         verified = verify_registration_response(
             credential=credential,
             expected_challenge=challenge,
-            expected_rp_id=settings.WEBAUTHN_RP_ID,
-            expected_origin=settings.WEBAUTHN_ORIGINS,
+            expected_rp_id=rp_id,
+            expected_origin=origins,
             require_user_verification=True,
         )
     except Exception as exc:  # noqa: BLE001
         AuditLog.record(
             AuditAction.BIOMETRIC_FAILED, actor=user, metadata={"purpose": "REGISTER", "reason": str(exc)[:200]}, ip=_ip(request)
         )
-        return _bad("We could not verify this device. Please try again.")
+        return _bad(f"We could not verify this device ({exc}). Please try again.")
 
     cred_id = bytes_to_base64url(verified.credential_id)
     if BiometricCredential.objects.filter(credential_id=cred_id).exists():
@@ -295,7 +317,7 @@ def login_options(request):
 
     row, raw = _new_challenge(None, BiometricChallenge.Purpose.LOGIN)
     options = generate_authentication_options(
-        rp_id=settings.WEBAUTHN_RP_ID,
+        rp_id=_rp(request)[0],
         challenge=raw,
         timeout=120_000,
         allow_credentials=allow,
@@ -331,7 +353,7 @@ def approve_options(request):
         return _bad("Set up face or fingerprint first.", "no_credentials")
     row, raw = _new_challenge(request.user, BiometricChallenge.Purpose.APPROVE)
     options = generate_authentication_options(
-        rp_id=settings.WEBAUTHN_RP_ID,
+        rp_id=_rp(request)[0],
         challenge=raw,
         timeout=120_000,
         allow_credentials=[_descriptor(c) for c in creds],

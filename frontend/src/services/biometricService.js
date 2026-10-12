@@ -18,27 +18,40 @@ import { ENDPOINTS } from './endpoints';
 
 /** Can this browser + device do built-in face/fingerprint at all? */
 export async function biometricSupport() {
-  if (!browserSupportsWebAuthn()) return { supported: false, platform: false };
+  // Passkeys only exist on https:// (or localhost). A phone opening the site
+  // through a LAN address like http://192.168.x.x is NOT a secure context.
+  const secure = typeof window !== 'undefined' && window.isSecureContext;
+  if (!secure || !browserSupportsWebAuthn()) return { supported: false, platform: false, secure };
   let platform = false;
   try {
     platform = await platformAuthenticatorIsAvailable();
   } catch {
     platform = false;
   }
-  return { supported: true, platform };
+  // `platform` is only a hint: several mobile browsers report false even when
+  // the phone has a fingerprint sensor, so it must never hide the setup button.
+  return { supported: true, platform, secure };
 }
 
 /** Turns WebAuthn browser errors into something a person can act on. */
 export function friendlyBiometricError(error) {
+  // Server errors (axios, normalised in api.js) already carry a readable message.
+  if (error?.status) return error.message;
   const name = error?.name ?? error?.cause?.name;
+  const code = error?.code;
+  if (code === 'ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED' || name === 'InvalidStateError') {
+    return 'This device is already set up for DigiBank.';
+  }
   if (name === 'NotAllowedError' || name === 'AbortError') {
-    return 'The scan was cancelled or timed out. Please try again.';
+    return 'The scan was cancelled, timed out, or no face / fingerprint is set up on this device. Make sure a screen lock with fingerprint or face is enabled, then try again.';
   }
-  if (name === 'InvalidStateError') return 'This device is already set up.';
+  if (name === 'ConstraintError' || code === 'ERROR_AUTHENTICATOR_MISSING_USER_VERIFICATION_SUPPORT') {
+    return 'This device cannot verify you. Turn on a screen lock with fingerprint, face or PIN in your phone / Windows settings first.';
+  }
   if (name === 'SecurityError') {
-    return 'Biometrics only work on a secure address (https:// or localhost).';
+    return 'Biometrics only work on the secure site (https://digibank-eta.vercel.app), not on an http:// or IP address.';
   }
-  if (name === 'NotSupportedError') return 'This device has no supported face or fingerprint sensor.';
+  if (name === 'NotSupportedError') return 'This browser cannot create a passkey. Try Chrome, Edge or Safari.';
   return error?.message || 'Biometric check failed. Please try again.';
 }
 

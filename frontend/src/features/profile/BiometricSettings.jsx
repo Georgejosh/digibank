@@ -67,7 +67,9 @@ export function BiometricSettings() {
 
   const devices = data?.devices ?? [];
   const protectedOn = Boolean(data?.require_biometric_for_withdrawals);
-  const canEnrol = support.supported && support.platform;
+  // Show setup whenever passkeys are supported; the built-in-sensor check is
+  // unreliable on phones and must not block enrolment.
+  const canEnrol = support.supported;
 
   const startEnrol = async () => {
     try {
@@ -108,13 +110,23 @@ export function BiometricSettings() {
         </div>
 
         {/* Capability notice */}
-        {support.checked && !canEnrol && (
+        {support.checked && !support.supported && (
           <div className="mt-4 flex items-start gap-2.5 rounded-field bg-accent-50 p-3 text-xs text-accent-900">
             <Info aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-accent-600" />
             <p>
-              {!support.supported
-                ? 'This browser does not support biometric sign-in. Try the latest Chrome, Edge, Safari or Firefox.'
-                : 'No built-in face or fingerprint sensor was found. On Windows, turn on Windows Hello in Settings › Accounts › Sign-in options, then reload this page.'}
+              {!support.secure
+                ? 'Face and fingerprint only work on the secure site. Open https://digibank-eta.vercel.app on this device (not an http:// or IP address).'
+                : 'This browser does not support passkeys. Use the latest Chrome, Edge or Safari (in-app browsers inside WhatsApp or Instagram are not supported).'}
+            </p>
+          </div>
+        )}
+        {support.checked && support.supported && !support.platform && devices.length === 0 && (
+          <div className="mt-4 flex items-start gap-2.5 rounded-field bg-ink-50 p-3 text-xs text-ink-700">
+            <Info aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-ink-500" />
+            <p>
+              Your browser did not report a built-in sensor, but you can still try. Make sure a screen lock with
+              fingerprint or face is turned on. On a laptop without one, choose &ldquo;Use a phone&rdquo; in the
+              window that opens and scan the QR code with your phone.
             </p>
           </div>
         )}

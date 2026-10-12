@@ -194,3 +194,30 @@ class BiometricTests(TestCase):
         self.assertEqual(res.status_code, 200)
         self.user.refresh_from_db()
         self.assertFalse(self.user.require_biometric_for_withdrawals)
+
+
+class BiometricOptionsTests(TestCase):
+    """Enrolment must not be limited to built-in sensors, and follows the request's origin."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            name="Opt User", email="opt@example.com", phone="9876544444", password="Password123", is_verified=True
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+
+    def test_registration_allows_phone_via_qr_and_requires_verification(self):
+        opts = self.client.post("/api/auth/biometric/register/options/").data["options"]
+        selection = opts["authenticatorSelection"]
+        self.assertNotIn("authenticatorAttachment", selection)  # platform OR phone-via-QR
+        self.assertEqual(selection["userVerification"], "required")
+        self.assertEqual(opts["hints"], ["client-device", "hybrid"])
+
+    def test_relying_party_follows_a_configured_origin(self):
+        from django.test import override_settings
+
+        with override_settings(WEBAUTHN_ORIGINS=["https://digibank-eta.vercel.app", "https://second.example.app"]):
+            opts = self.client.post("/api/auth/biometric/register/options/", HTTP_ORIGIN="https://second.example.app").data["options"]
+            self.assertEqual(opts["rp"]["id"], "second.example.app")
+            opts = self.client.post("/api/auth/biometric/register/options/", HTTP_ORIGIN="https://evil.example.com").data["options"]
+            self.assertEqual(opts["rp"]["id"], "localhost")  # unknown origin: falls back to the configured RP
