@@ -12,8 +12,8 @@
  *
  * Bump CACHE_VERSION whenever the shell changes, so old caches get dropped.
  */
-const CACHE_VERSION = 'digibank-v1';
-const SHELL = ['/', '/index.html', '/manifest.json', '/favicon.png', '/icons/icon-192.png'];
+const CACHE_VERSION = 'digibank-v2'; // bumped for the new logo
+const SHELL = ['/', '/index.html', '/manifest.json', '/favicon.png', '/logo.png', '/icons/icon-192.png'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
