@@ -133,3 +133,24 @@ class WalletLedgerTests(TestCase):
         self.assertEqual(res.status_code, 201)
         self.goal.refresh_from_db()
         self.assertEqual(self.goal.status, SavingsAccountStatus.WITHDRAWN)
+
+
+class TestMoneyTests(TestCase):
+    """New accounts start with test money, recorded in the wallet statement."""
+
+    @override_settings(TEST_WALLET_CREDIT_PAISE=1_000_000)
+    def test_new_user_gets_test_money_with_statement_row(self):
+        from apps.payments.models import WalletTransaction
+
+        user = User.objects.create_user(name="New User", email="new@example.com", phone="9876566666", password="Password123")
+        user.refresh_from_db()
+        self.assertEqual(user.digital_wallet_balance_paise, 1_000_000)
+        row = WalletTransaction.objects.get(user=user)
+        self.assertEqual((row.kind, row.amount_paise, row.balance_after_paise), ("TEST_CREDIT", 1_000_000, 1_000_000))
+        self.assertTrue(row.is_credit)
+
+    @override_settings(TEST_WALLET_CREDIT_PAISE=0)
+    def test_switched_off_with_zero(self):
+        user = User.objects.create_user(name="No Money", email="none@example.com", phone="9876577777", password="Password123")
+        user.refresh_from_db()
+        self.assertEqual(user.digital_wallet_balance_paise, 0)

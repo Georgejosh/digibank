@@ -192,6 +192,13 @@ RAZORPAY_KEY_SECRET = env("RAZORPAY_KEY_SECRET", "")
 RAZORPAY_WEBHOOK_SECRET = env("RAZORPAY_WEBHOOK_SECRET", "")
 WALLET_TOPUP_MIN_PAISE = int(env("WALLET_TOPUP_MIN_PAISE", "1000"))        # Rs 10
 WALLET_TOPUP_MAX_PAISE = int(env("WALLET_TOPUP_MAX_PAISE", "10000000"))    # Rs 1,00,000
+
+# TEST MONEY: every new account starts with this much in its wallet so the app
+# can be tried without a real payment. Rs 10,000 by default; set
+# TEST_WALLET_CREDIT_PAISE=0 before going live with real money.
+import sys as _sys  # noqa: E402
+
+TEST_WALLET_CREDIT_PAISE = 0 if "test" in _sys.argv else int(env("TEST_WALLET_CREDIT_PAISE", "1000000"))
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # ---------------------------------------------------------------------------

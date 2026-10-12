@@ -1,6 +1,7 @@
 import {
   ArrowDownLeft,
   ArrowUpRight,
+  Gift,
   KeyRound,
   Landmark,
   Lock,
@@ -19,6 +20,7 @@ const KIND_ICON = {
   TO_LOCKER: KeyRound,
   FROM_LOCKER: KeyRound,
   EMERGENCY_RELEASE: ShieldAlert,
+  TEST_CREDIT: Gift,
 };
 
 /** One line of the wallet statement (GET /payments/wallet/transactions/). */

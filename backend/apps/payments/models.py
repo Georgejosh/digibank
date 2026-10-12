@@ -112,6 +112,7 @@ class WalletEntryKind(models.TextChoices):
     TO_LOCKER = "TO_LOCKER", "Locked in term locker (retired)"
     FROM_LOCKER = "FROM_LOCKER", "Term locker payout (retired)"
     EMERGENCY_RELEASE = "EMERGENCY_RELEASE", "Emergency release"
+    TEST_CREDIT = "TEST_CREDIT", "Test money"
 
 
 # Kinds that add money to the wallet. Everything else takes money out.
@@ -120,6 +121,7 @@ WALLET_CREDIT_KINDS = {
     WalletEntryKind.FROM_SAVINGS,
     WalletEntryKind.FROM_LOCKER,
     WalletEntryKind.EMERGENCY_RELEASE,
+    WalletEntryKind.TEST_CREDIT,
 }
 
 
@@ -185,6 +187,7 @@ class WalletTransaction(models.Model):
             WalletEntryKind.TO_LOCKER: "LCK",
             WalletEntryKind.FROM_LOCKER: "LCP",
             WalletEntryKind.EMERGENCY_RELEASE: "EMG",
+            WalletEntryKind.TEST_CREDIT: "TST",
         }[kind]
         return cls.objects.create(
             user=user,
