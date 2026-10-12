@@ -35,4 +35,7 @@ account_urlpatterns = [
 kyc_urlpatterns = [
     path("", kyc.kyc_status, name="kyc-status"),
     path("submit/", kyc.kyc_submit, name="kyc-submit"),
+    path("check-pan/", kyc.kyc_check_pan, name="kyc-check-pan"),
+    path("aadhaar/otp/", kyc.kyc_aadhaar_otp, name="kyc-aadhaar-otp"),
+    path("aadhaar/verify/", kyc.kyc_aadhaar_verify, name="kyc-aadhaar-verify"),
 ]

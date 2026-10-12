@@ -35,9 +35,13 @@ from rest_framework.parsers import JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from apps.audit.models import AuditLog
+from datetime import timedelta
+
+from apps.audit.models import AuditAction, AuditLog
+from apps.notifications.models import Notification, NotificationType
+from . import kyc_providers as providers
 from .crypto import encrypt, fingerprint
-from .models import KycProfile, KycStatus, LinkedBankAccount
+from .models import KycCheck, KycProfile, KycStatus, LinkedBankAccount
 
 PAN_RE = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
 IFSC_RE = re.compile(r"^[A-Z]{4}0[A-Z0-9]{6}$")
@@ -82,6 +86,42 @@ def names_match(a, b):
     return bool(_tokens(a) & _tokens(b))
 
 
+def name_score(a, b):
+    """0-100: share of the shorter name's tokens found in the longer one."""
+    ta, tb = _tokens(a), _tokens(b)
+    if not ta or not tb:
+        return 0
+    small, large = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
+    return round(100 * len(small & large) / len(small))
+
+
+PAN_CHECKS_PER_HOUR = 15
+AADHAAR_OTPS_PER_HOUR = 5
+NAME_MATCH_MIN = 70
+
+
+def _pan_fp(pan):
+    return fingerprint(f"PAN:{pan}")
+
+
+def _aadhaar_fp(aadhaar):
+    return fingerprint(f"AADHAAR:{aadhaar}")
+
+
+def _pan_offline_checks(pan, full_name):
+    surname = (full_name.split()[-1][:1].upper() if full_name.split() else "")
+    return [
+        {"key": "format", "label": "Format ABCDE1234F", "ok": bool(PAN_RE.match(pan))},
+        {"key": "individual", "label": "Individual PAN (4th letter P)", "ok": len(pan) >= 4 and pan[3] == "P"},
+        {"key": "surname", "label": "5th letter matches surname initial", "ok": bool(surname) and len(pan) >= 5 and pan[4] == surname, "soft": True},
+    ]
+
+
+def _rate_limited(user, kind, limit):
+    since = timezone.now() - timedelta(hours=1)
+    return KycCheck.objects.filter(user=user, kind=kind, created_at__gte=since).count() >= limit
+
+
 def _age(dob):
     today = timezone.localdate()
     return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
@@ -122,7 +162,7 @@ def _check_upload(upload, label, images_only=False):
 # ---------------------------------------------------------------------------
 def _kyc_payload(user):
     profile = getattr(user, "kyc", None)
-    data = {"status": user.kyc_status, "profile": None}
+    data = {"status": user.kyc_status, "profile": None, "mode": providers.mode()}
     if profile:
         data["profile"] = {
             "full_name": profile.full_name,
@@ -137,8 +177,151 @@ def _kyc_payload(user):
             "submitted_at": profile.submitted_at,
             "reviewed_at": profile.reviewed_at,
             "rejection_reason": profile.rejection_reason,
+            "verification_level": profile.verification_level,
+            "verification_level_label": profile.get_verification_level_display() if profile.verification_level else "",
+            "pan_registered_name": profile.pan_registered_name,
+            "aadhaar_verified": profile.aadhaar_verified,
+            "review_reasons": (profile.auto_checks or {}).get("review_reasons", []),
         }
     return data
+
+
+# ---------------------------------------------------------------------------
+# Real-time verification (as the user types)
+# ---------------------------------------------------------------------------
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@parser_classes([JSONParser])
+def kyc_check_pan(request):
+    """Validates a PAN instantly and, with a provider, against Income Tax records."""
+    pan = (request.data.get("pan") or "").strip().upper()
+    full_name = (request.data.get("full_name") or "").strip()
+    checks = _pan_offline_checks(pan, full_name)
+    if not all(c["ok"] for c in checks if not c.get("soft")):
+        return Response({"valid": False, "mode": providers.mode(), "checks": checks,
+                         "message": "Fix the PAN format first."})
+
+    if providers.mode() == "local":
+        return Response({"valid": True, "mode": "local", "checks": checks, "registry": None,
+                         "message": "PAN format is valid."})
+
+    if _rate_limited(request.user, KycCheck.Kind.PAN, PAN_CHECKS_PER_HOUR):
+        return Response({"detail": "Too many PAN checks. Please try again in an hour.", "code": "rate_limited"},
+                        status=status.HTTP_429_TOO_MANY_REQUESTS)
+    try:
+        result = providers.verify_pan(pan, full_name)
+    except providers.ProviderError as exc:
+        return Response({"detail": exc.message, "code": exc.code}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    score = result.get("name_match")
+    if not score and result.get("registered_name"):
+        score = name_score(result["registered_name"], full_name)
+    result["name_match"] = score
+    result["name_ok"] = bool(result["verified"]) and (score or 0) >= NAME_MATCH_MIN
+    KycCheck.objects.create(user=request.user, kind=KycCheck.Kind.PAN, value_hash=_pan_fp(pan), mode="cashfree",
+                            verified=result["verified"], result=result)
+    return Response({"valid": True, "mode": "cashfree", "checks": checks, "registry": result,
+                     "message": result["message"]})
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@parser_classes([JSONParser])
+def kyc_aadhaar_otp(request):
+    """Checksum-validates the Aadhaar and, with a provider, sends a UIDAI OTP."""
+    aadhaar = re.sub(r"\D", "", request.data.get("aadhaar") or "")
+    if not aadhaar_is_valid(aadhaar):
+        return Response({"detail": "That Aadhaar number is not valid. Check all 12 digits.", "code": "aadhaar_invalid"},
+                        status=status.HTTP_400_BAD_REQUEST)
+    if providers.mode() == "local":
+        return Response({"sent": False, "mode": "local", "message": "Aadhaar number is valid (checksum verified)."})
+    if _rate_limited(request.user, KycCheck.Kind.AADHAAR, AADHAAR_OTPS_PER_HOUR):
+        return Response({"detail": "Too many OTP requests. Please try again in an hour.", "code": "rate_limited"},
+                        status=status.HTTP_429_TOO_MANY_REQUESTS)
+    try:
+        ref_id = providers.aadhaar_send_otp(aadhaar)
+    except providers.ProviderError as exc:
+        http = status.HTTP_429_TOO_MANY_REQUESTS if exc.retry_after else status.HTTP_400_BAD_REQUEST
+        return Response({"detail": exc.message, "code": exc.code, "retry_after": exc.retry_after}, status=http)
+    check = KycCheck.objects.create(user=request.user, kind=KycCheck.Kind.AADHAAR, value_hash=_aadhaar_fp(aadhaar),
+                                    mode="cashfree", verified=None, ref_id=ref_id)
+    return Response({"sent": True, "mode": "cashfree", "check_id": check.id,
+                     "message": "OTP sent to the mobile number linked with this Aadhaar."})
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@parser_classes([JSONParser])
+def kyc_aadhaar_verify(request):
+    otp = re.sub(r"\D", "", str(request.data.get("otp") or ""))
+    check = KycCheck.objects.filter(
+        pk=request.data.get("check_id"), user=request.user, kind=KycCheck.Kind.AADHAAR, verified__isnull=True,
+        created_at__gte=timezone.now() - timedelta(minutes=10),
+    ).first()
+    if check is None:
+        return Response({"detail": "This OTP request has expired. Send a new OTP.", "code": "otp_expired"},
+                        status=status.HTTP_400_BAD_REQUEST)
+    if len(otp) != 6:
+        return Response({"detail": "Enter the 6-digit OTP.", "code": "otp_invalid"}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        details = providers.aadhaar_verify_otp(check.ref_id, otp)
+    except providers.ProviderError as exc:
+        return Response({"detail": exc.message, "code": exc.code}, status=status.HTTP_400_BAD_REQUEST)
+    check.verified = True
+    check.result = details  # name, dob, gender, address - never the photo or XML
+    check.save(update_fields=["verified", "result"])
+    return Response({"verified": True, **details})
+
+
+def _decide(user, profile, pan, aadhaar, offline):
+    """
+    The instant KYC decision. Returns (status, level, reasons).
+    Registry mode needs positive government checks; local mode needs every
+    offline check to pass. Anything else goes to a human reviewer.
+    """
+    if settings.KYC_AUTO_APPROVE == "off":
+        return KycStatus.SUBMITTED, "", ["Automatic approval is switched off; a reviewer will check your documents."]
+
+    reasons = []
+    if providers.mode() == "cashfree":
+        since = timezone.now() - timedelta(days=1)
+        pan_check = KycCheck.objects.filter(user=user, kind=KycCheck.Kind.PAN, value_hash=_pan_fp(pan),
+                                            mode="cashfree", created_at__gte=since).first()
+        if not pan_check or not pan_check.verified:
+            reasons.append("PAN could not be confirmed with Income Tax records.")
+        else:
+            reg = pan_check.result.get("registered_name", "")
+            profile.pan_registered_name = reg[:150]
+            if (pan_check.result.get("name_match") or 0) < NAME_MATCH_MIN:
+                reasons.append(f"Name does not match PAN records ({reg}).")
+        if profile.address_proof_type == KycProfile.AddressProof.AADHAAR:
+            a = KycCheck.objects.filter(user=user, kind=KycCheck.Kind.AADHAAR, value_hash=_aadhaar_fp(aadhaar),
+                                        verified=True, created_at__gte=since).first()
+            if not a:
+                reasons.append("Aadhaar was not verified with OTP.")
+            else:
+                profile.aadhaar_verified = True
+                if name_score(a.result.get("name", ""), profile.full_name) < NAME_MATCH_MIN:
+                    reasons.append("Name does not match Aadhaar records.")
+                dob = a.result.get("dob", "")
+                if dob and dob != profile.date_of_birth.strftime("%d-%m-%Y"):
+                    reasons.append("Date of birth does not match Aadhaar records.")
+        level = KycProfile.Level.REGISTRY
+    else:
+        labels = {
+            "pan_structure": "PAN format", "pan_holder_type_individual": "Individual PAN",
+            "pan_surname_initial_matches": "PAN surname initial", "aadhaar_checksum": "Aadhaar checksum",
+            "age_18_plus": "Age 18+", "name_matches_account": "Name matches your account",
+        }
+        # The surname-initial rule is advisory: many names put the initial last
+        # ("Frankline C"), so it must not block an otherwise valid KYC.
+        advisory = {"pan_surname_initial_matches"}
+        reasons = [f"{labels.get(k, k)} check failed." for k, v in offline.items() if v is False and k not in advisory]
+        level = KycProfile.Level.AUTOMATED
+
+    if reasons:
+        return KycStatus.SUBMITTED, "", reasons
+    return KycStatus.VERIFIED, level, []
 
 
 @api_view(["GET"])
@@ -224,7 +407,7 @@ def kyc_submit(request):
     now = timezone.now()
     with transaction.atomic():
         KycProfile.objects.filter(user=user).delete()  # a resubmission replaces the old one
-        KycProfile.objects.create(
+        profile = KycProfile.objects.create(
             user=user,
             full_name=full_name,
             date_of_birth=dob,
@@ -241,11 +424,28 @@ def kyc_submit(request):
             submitted_at=now,
             **address,
         )
-        user.kyc_status = KycStatus.SUBMITTED
+        new_status, level, reasons = _decide(user, profile, pan, aadhaar, auto_checks)
+        profile.verification_level = level
+        profile.auto_checks = {**auto_checks, "review_reasons": reasons, "provider": providers.mode()}
+        if new_status == KycStatus.VERIFIED:
+            profile.reviewed_at = now
+        profile.save(update_fields=["verification_level", "auto_checks", "reviewed_at",
+                                    "pan_registered_name", "aadhaar_verified"])
+        user.kyc_status = new_status
         user.save(update_fields=["kyc_status"])
 
-    AuditLog.record("KYC_SUBMITTED", actor=user, metadata={"auto_checks": auto_checks})
-    return Response(_kyc_payload(user), status=status.HTTP_201_CREATED)
+    AuditLog.record(AuditAction.KYC_SUBMITTED, actor=user, entity=profile,
+                    metadata={"auto_checks": auto_checks, "decision": new_status, "reasons": reasons})
+    if new_status == KycStatus.VERIFIED:
+        AuditLog.record(AuditAction.KYC_APPROVED, actor=None, entity=profile,
+                        metadata={"user": user.email, "automatic": True, "level": level})
+        Notification.objects.create(
+            user=user, type=NotificationType.KYC_UPDATE, title="KYC verified instantly",
+            body="Your identity is verified. You can now link a bank account and add money.",
+        )
+    payload = _kyc_payload(user)
+    payload["decision"] = {"status": new_status, "level": level, "reasons": reasons}
+    return Response(payload, status=status.HTTP_201_CREATED)
 
 
 @staff_member_required

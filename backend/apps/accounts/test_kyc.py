@@ -12,7 +12,7 @@ from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from apps.accounts import kyc
-from apps.accounts.models import KycProfile, KycStatus, LinkedBankAccount
+from apps.accounts.models import KycCheck, KycProfile, KycStatus, LinkedBankAccount
 
 User = get_user_model()
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
@@ -70,7 +70,9 @@ class KycTests(TestCase):
         res = self.client.post("/api/kyc/submit/", self._form(), format="multipart")
         self.assertEqual(res.status_code, 201, res.data)
         self.user.refresh_from_db()
-        self.assertEqual(self.user.kyc_status, KycStatus.SUBMITTED)
+        # No provider configured: every offline check passed, so it is approved instantly.
+        self.assertEqual(self.user.kyc_status, KycStatus.VERIFIED)
+        self.assertEqual(res.data["decision"]["level"], "AUTOMATED")
         profile = KycProfile.objects.get(user=self.user)
         self.assertEqual(profile.pan_number, "ABCPS1234K")
         self.assertNotIn("ABCPS1234K", profile.pan_encrypted)  # encrypted at rest
@@ -262,3 +264,111 @@ class CryptoHardeningTests(TestCase):
         user = User.objects.create_user(name="Hash Test", email="hash@example.com", phone="9876533333", password="Password123")
         self.assertTrue(user.password.startswith("argon2$argon2id$"))
         self.assertTrue(user.check_password("Password123"))
+
+
+@override_settings(MEDIA_ROOT=MEDIA)
+class RealtimeKycTests(TestCase):
+    """Real-time PAN / Aadhaar checks and the instant KYC decision."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            name="Priya Sharma", email="rt@example.com", phone="9876555555", password="Password123", is_verified=True
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+        self.aadhaar = valid_aadhaar()
+
+    def _submit(self, **overrides):
+        return self.client.post("/api/kyc/submit/", KycTests._form(self, **overrides), format="multipart")
+
+    # ---- local mode (no provider keys) --------------------------------------
+    def test_pan_check_reports_format_instantly(self):
+        bad = self.client.post("/api/kyc/check-pan/", {"pan": "ABCCS1234K", "full_name": "Priya Sharma"}, format="json").data
+        self.assertFalse(bad["valid"])
+        good = self.client.post("/api/kyc/check-pan/", {"pan": "ABCPS1234K", "full_name": "Priya Sharma"}, format="json").data
+        self.assertTrue(good["valid"])
+        self.assertEqual(good["mode"], "local")
+
+    def test_aadhaar_checksum_checked_instantly(self):
+        self.assertEqual(self.client.post("/api/kyc/aadhaar/otp/", {"aadhaar": "234567890123"}, format="json").status_code, 400)
+        ok = self.client.post("/api/kyc/aadhaar/otp/", {"aadhaar": self.aadhaar}, format="json").data
+        self.assertFalse(ok["sent"])
+        self.assertIn("checksum", ok["message"])
+
+    def test_name_mismatch_goes_to_manual_review(self):
+        res = self._submit(full_name="Rahul Verma", pan="ABCPV1234K")
+        self.assertEqual(res.data["status"], KycStatus.SUBMITTED)
+        self.assertTrue(res.data["decision"]["reasons"])
+
+    @override_settings(KYC_AUTO_APPROVE="off")
+    def test_auto_approval_can_be_switched_off(self):
+        self.assertEqual(self._submit().data["status"], KycStatus.SUBMITTED)
+
+    # ---- provider mode (Cashfree, mocked) -----------------------------------
+    @override_settings(CASHFREE_CLIENT_ID="cf_test", CASHFREE_CLIENT_SECRET="cf_secret")
+    def test_registry_verified_pan_and_aadhaar_are_approved_instantly(self):
+        pan_ok = {"verified": True, "registered_name": "PRIYA SHARMA", "name_match": 100.0, "message": "Existing and Valid"}
+        aadhaar_ok = {"name": "Priya Sharma", "dob": "14-05-2000", "gender": "F",
+                      "address": {"address_line1": "12 MG Road", "address_line2": "", "city": "Bengaluru",
+                                  "state": "Karnataka", "pincode": "560001"}}
+        with mock.patch("apps.accounts.kyc_providers.verify_pan", return_value=pan_ok), \
+                mock.patch("apps.accounts.kyc_providers.aadhaar_send_otp", return_value="21637861"), \
+                mock.patch("apps.accounts.kyc_providers.aadhaar_verify_otp", return_value=aadhaar_ok):
+            pan = self.client.post("/api/kyc/check-pan/", {"pan": "ABCPS1234K", "full_name": "Priya Sharma"}, format="json").data
+            self.assertTrue(pan["registry"]["name_ok"])
+            sent = self.client.post("/api/kyc/aadhaar/otp/", {"aadhaar": self.aadhaar}, format="json").data
+            verified = self.client.post("/api/kyc/aadhaar/verify/", {"check_id": sent["check_id"], "otp": "111000"}, format="json")
+            self.assertEqual(verified.status_code, 200)
+            self.assertEqual(verified.data["address"]["city"], "Bengaluru")
+            res = self._submit(aadhaar=self.aadhaar)
+        self.assertEqual(res.data["status"], KycStatus.VERIFIED, res.data)
+        self.assertEqual(res.data["decision"]["level"], "REGISTRY")
+        self.assertTrue(res.data["profile"]["aadhaar_verified"])
+        self.assertFalse(KycCheck.objects.filter(value_hash__contains=self.aadhaar).exists())  # only hashes stored
+
+    @override_settings(CASHFREE_CLIENT_ID="cf_test", CASHFREE_CLIENT_SECRET="cf_secret")
+    def test_unverified_aadhaar_needs_review(self):
+        pan_ok = {"verified": True, "registered_name": "PRIYA SHARMA", "name_match": 100.0, "message": "ok"}
+        with mock.patch("apps.accounts.kyc_providers.verify_pan", return_value=pan_ok):
+            self.client.post("/api/kyc/check-pan/", {"pan": "ABCPS1234K", "full_name": "Priya Sharma"}, format="json")
+            res = self._submit()  # Aadhaar never OTP-verified
+        self.assertEqual(res.data["status"], KycStatus.SUBMITTED)
+        self.assertIn("Aadhaar was not verified with OTP.", res.data["decision"]["reasons"])
+
+    @override_settings(CASHFREE_CLIENT_ID="cf_test", CASHFREE_CLIENT_SECRET="cf_secret")
+    def test_rejected_pan_needs_review(self):
+        rejected = {"verified": False, "registered_name": "", "name_match": 0, "message": "Invalid PAN"}
+        with mock.patch("apps.accounts.kyc_providers.verify_pan", return_value=rejected):
+            self.client.post("/api/kyc/check-pan/", {"pan": "ABCPS1234K", "full_name": "Priya Sharma"}, format="json")
+            res = self._submit(address_proof_type="PASSPORT", aadhaar="")
+        self.assertEqual(res.data["status"], KycStatus.SUBMITTED)
+
+
+class ProviderParsingTests(TestCase):
+    """The Cashfree adapter reads the documented response shapes correctly."""
+
+    @override_settings(CASHFREE_CLIENT_ID="cf_test", CASHFREE_CLIENT_SECRET="cf_secret")
+    def test_parses_documented_samples(self):
+        from apps.accounts import kyc_providers as p
+
+        valid = {"pan": "ABCPV1234D", "type": "Individual", "registered_name": "JOHN DOE", "valid": True,
+                 "name_match_score": "100.00", "pan_status": "VALID", "pan_status_desc": "Existing and Valid"}
+        invalid = {"pan": "ABCPV1234D", "valid": False, "message": "Invalid PAN", "name_match_score": 0,
+                   "pan_status_desc": "Not found in ITD database or Invalid PAN"}
+        with mock.patch.object(p, "_post", return_value=valid):
+            r = p.verify_pan("ABCPV1234D", "John Doe")
+            self.assertTrue(r["verified"])
+            self.assertEqual((r["registered_name"], r["name_match"]), ("JOHN DOE", 100.0))
+        with mock.patch.object(p, "_post", return_value=invalid):
+            self.assertFalse(p.verify_pan("ABCPV1234D", "John Doe")["verified"])
+        with mock.patch.object(p, "_post", return_value={"status": "SUCCESS", "message": "Aadhaar not linked to mobile number"}):
+            with self.assertRaises(p.ProviderError):
+                p.aadhaar_send_otp("655675523712")
+        sample = {"ref_id": "70471", "status": "VALID", "name": "Mallesh Fakkirappa Dollin", "dob": "02-02-1995", "gender": "M",
+                  "split_address": {"house": "Shri Kanaka Nilaya", "street": "Umashankar Nagar", "landmark": "",
+                                    "locality": "Pritam Pura", "po": "Ranebennur", "vtc": "Ranibennur", "dist": "Haveri",
+                                    "state": "Karnataka", "pincode": "581115"}}
+        with mock.patch.object(p, "_post", return_value=sample):
+            d = p.aadhaar_verify_otp("70471", "111000")
+            self.assertEqual(d["address"]["pincode"], "581115")
+            self.assertEqual(d["address"]["address_line1"], "Shri Kanaka Nilaya, Umashankar Nagar")

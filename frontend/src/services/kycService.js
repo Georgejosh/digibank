@@ -106,3 +106,20 @@ export async function payWithRazorpay(order) {
     rzp.open();
   });
 }
+
+/** Real-time PAN check: format, and Income Tax records when a provider is configured. */
+export async function checkPan(payload) {
+  const { data } = await api.post(ENDPOINTS.kyc.checkPan, payload);
+  return data;
+}
+
+/** Validates the Aadhaar checksum and, with a provider, sends a UIDAI OTP. */
+export async function aadhaarOtp(payload) {
+  const { data } = await api.post(ENDPOINTS.kyc.aadhaarOtp, payload);
+  return data;
+}
+
+export async function aadhaarVerify(payload) {
+  const { data } = await api.post(ENDPOINTS.kyc.aadhaarVerify, payload);
+  return data;
+}

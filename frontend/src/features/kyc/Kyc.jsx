@@ -21,6 +21,7 @@ import { Checkbox, Input, Select } from '@/components/ui/Input';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { SelfieCapture } from './SelfieCapture';
+import { AadhaarVerify, PanVerify } from './IdentityVerify';
 import {
   ADDRESS_PROOFS,
   OCCUPATIONS,
@@ -118,7 +119,7 @@ export function Kyc() {
           </CardBody>
         </Card>
       ) : showForm ? (
-        <KycForm />
+        <KycForm mode={data?.mode} />
       ) : (
         <KycStatusCard data={data} onResubmit={() => setResubmitting(true)} />
       )}
@@ -132,13 +133,13 @@ function KycStatusCard({ data, onResubmit }) {
     SUBMITTED: {
       icon: Clock,
       tone: 'bg-accent-50 text-accent-700',
-      title: 'Under review',
-      body: 'Thanks! Our team is checking your documents. This usually takes less than one working day. We will notify you as soon as it is done.',
+      title: 'Sent for manual review',
+      body: 'Some details could not be confirmed automatically, so a reviewer will check your documents. This usually takes less than one working day.',
     },
     VERIFIED: {
       icon: BadgeCheck,
       tone: 'bg-success-50 text-success-600',
-      title: 'You are verified',
+      title: profile?.verification_level === 'MANUAL' ? 'You are verified' : 'Verified instantly',
       body: 'Your identity is confirmed. You can now link your bank account and add money to your wallet.',
     },
     REJECTED: {
@@ -161,6 +162,18 @@ function KycStatusCard({ data, onResubmit }) {
           </span>
           <h2 className="mt-4 text-title text-ink-900">{config.title}</h2>
           <p className="mt-2 max-w-md text-sm text-ink-600">{config.body}</p>
+          {status === 'VERIFIED' && profile?.verification_level_label && (
+            <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-success-50 px-3 py-1 text-xs font-semibold text-success-700">
+              <ShieldCheck aria-hidden="true" className="h-3.5 w-3.5" /> {profile.verification_level_label}
+            </p>
+          )}
+          {status === 'SUBMITTED' && profile?.review_reasons?.length > 0 && (
+            <ul className="mt-4 max-w-md space-y-1 text-left text-xs text-accent-900">
+              {profile.review_reasons.map((r) => (
+                <li key={r} className="flex gap-1.5"><XCircle aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />{r}</li>
+              ))}
+            </ul>
+          )}
           <div className="mt-6 flex flex-wrap justify-center gap-2">
             {status === 'VERIFIED' && (
               <>
@@ -185,8 +198,8 @@ function KycStatusCard({ data, onResubmit }) {
               {[
                 ['Name', profile.full_name],
                 ['Date of birth', formatDate(profile.date_of_birth)],
-                ['PAN', profile.masked_pan],
-                ['Aadhaar', profile.aadhaar_last4 ? `XXXX XXXX ${profile.aadhaar_last4}` : '—'],
+                ['PAN', profile.masked_pan + (profile.pan_registered_name ? ' (ITD verified)' : '')],
+                ['Aadhaar', profile.aadhaar_last4 ? `XXXX XXXX ${profile.aadhaar_last4}${profile.aadhaar_verified ? ' (UIDAI verified)' : ''}` : '—'],
                 ['City', `${profile.city}, ${profile.state} ${profile.pincode}`],
                 ['Submitted', formatDate(profile.submitted_at)],
                 ...(profile.reviewed_at ? [['Reviewed', formatDate(profile.reviewed_at)]] : []),
@@ -204,12 +217,13 @@ function KycStatusCard({ data, onResubmit }) {
   );
 }
 
-function KycForm() {
+function KycForm({ mode }) {
   const { user } = useAuth();
   const submit = useSubmitKyc();
   const [step, setStep] = useState(0);
   const [form, setForm] = useState(() => ({ ...EMPTY, full_name: user?.name ?? '' }));
   const [errors, setErrors] = useState({});
+  const [aadhaarDetails, setAadhaarDetails] = useState(null);
 
   const set = (key, value) => {
     setForm((f) => ({ ...f, [key]: value }));
@@ -277,10 +291,9 @@ function KycForm() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <Input label="Date of birth" type="date" required value={form.date_of_birth} error={errors.date_of_birth}
                   max={new Date().toISOString().slice(0, 10)} onChange={(e) => set('date_of_birth', e.target.value)} />
-                <Input label="PAN number" required placeholder="ABCDE1234F" maxLength={10} value={form.pan} error={errors.pan}
-                  className="font-mono uppercase tracking-widest" autoComplete="off"
-                  onChange={(e) => set('pan', e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} />
               </div>
+              <PanVerify pan={form.pan} fullName={form.full_name} error={errors.pan} mode={mode}
+                onChange={(v) => set('pan', v)} />
               <Select label="Occupation" required value={form.occupation} error={errors.occupation}
                 onChange={(e) => set('occupation', e.target.value)}>
                 <option value="">Choose one</option>
@@ -296,10 +309,10 @@ function KycForm() {
                 {ADDRESS_PROOFS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </Select>
               {form.address_proof_type === 'AADHAAR' && (
-                <Input label="Aadhaar number" required inputMode="numeric" placeholder="1234 5678 9012" value={form.aadhaar}
-                  error={errors.aadhaar} className="font-mono tracking-widest" autoComplete="off"
-                  hint="Checked here and on our server, then discarded. We keep only the last 4 digits."
-                  onChange={(e) => set('aadhaar', e.target.value.replace(/\D/g, '').slice(0, 12).replace(/(\d{4})(?=\d)/g, '$1 '))} />
+                <AadhaarVerify value={form.aadhaar} error={errors.aadhaar} mode={mode} verified={aadhaarDetails}
+                  onChange={(v) => { set('aadhaar', v); setAadhaarDetails(null); }}
+                  onVerified={setAadhaarDetails}
+                  onUseAddress={(a) => setForm((f) => ({ ...f, ...a }))} />
               )}
               <Input label="House / flat, street" required value={form.address_line1} error={errors.address_line1}
                 onChange={(e) => set('address_line1', e.target.value)} autoComplete="address-line1" />
@@ -375,7 +388,7 @@ function KycForm() {
             <Button rightIcon={ArrowRight} onClick={next}>Continue</Button>
           ) : (
             <Button leftIcon={ShieldCheck} onClick={send} isLoading={submit.isPending}>
-              {submit.isPending ? 'Uploading...' : 'Submit for verification'}
+              {submit.isPending ? 'Verifying your details...' : 'Submit & verify instantly'}
             </Button>
           )}
         </div>

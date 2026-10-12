@@ -66,14 +66,15 @@ class KycProfileAdmin(admin.ModelAdmin):
     user sees on their KYC screen.
     """
 
-    list_display = ["user", "full_name", "kyc_status", "masked_pan", "checks_summary", "submitted_at", "reviewed_at"]
+    list_display = ["user", "full_name", "kyc_status", "verification_level", "masked_pan", "checks_summary", "submitted_at", "reviewed_at"]
     list_filter = ["user__kyc_status", "occupation", "address_proof_type"]
     search_fields = ["user__email", "full_name", "pan_last4"]
     actions = ["approve", "reject"]
     readonly_fields = [
         "user", "full_name", "date_of_birth", "full_pan", "aadhaar_last4", "occupation",
         "address_line1", "address_line2", "city", "state", "pincode", "address_proof_type",
-        "documents", "auto_checks", "consent_at", "submitted_at", "reviewed_at", "reviewed_by",
+        "documents", "auto_checks", "verification_level", "pan_registered_name", "aadhaar_verified",
+        "consent_at", "submitted_at", "reviewed_at", "reviewed_by",
     ]
     fields = readonly_fields + ["rejection_reason"]
     exclude = ["pan_encrypted", "pan_document", "address_document", "selfie"]
@@ -123,7 +124,8 @@ class KycProfileAdmin(admin.ModelAdmin):
             profile.reviewed_by = request.user
             if new_status == KycStatus.VERIFIED:
                 profile.rejection_reason = ""
-            profile.save(update_fields=["reviewed_at", "reviewed_by", "rejection_reason"])
+                profile.verification_level = profile.verification_level or KycProfile.Level.MANUAL
+            profile.save(update_fields=["reviewed_at", "reviewed_by", "rejection_reason", "verification_level"])
             approved = new_status == KycStatus.VERIFIED
             Notification.objects.create(
                 user=user,

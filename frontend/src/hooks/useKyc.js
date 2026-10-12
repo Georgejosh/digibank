@@ -25,7 +25,8 @@ export function useSubmitKyc() {
     onSuccess: (data) => {
       queryClient.setQueryData(queryKeys.kyc, data);
       refreshUser?.();
-      toast.success('KYC submitted', 'We will review your documents shortly.');
+      if (data.status === 'VERIFIED') toast.success('KYC verified instantly', 'You can now link a bank account and add money.');
+      else toast.info('KYC sent for review', 'Some details need a quick manual check.');
     },
     onError: (error) => toast.error('KYC not submitted', error.message),
   });

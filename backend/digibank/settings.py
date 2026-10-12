@@ -173,6 +173,16 @@ MEDIA_ROOT = Path(env("PRIVATE_MEDIA_ROOT", str(BASE_DIR / "private_media")))
 KYC_MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 FIELD_ENCRYPTION_KEY = env("FIELD_ENCRYPTION_KEY", "")
 
+# Real-time KYC. With Cashfree Verification keys, PAN is checked against the
+# Income Tax database and Aadhaar is confirmed by UIDAI OTP. Without keys only
+# offline checks run (format + Aadhaar checksum).
+CASHFREE_CLIENT_ID = env("CASHFREE_CLIENT_ID", "")
+CASHFREE_CLIENT_SECRET = env("CASHFREE_CLIENT_SECRET", "")
+CASHFREE_ENV = env("CASHFREE_ENV", "sandbox").lower()  # sandbox / production
+# on  -> decide instantly at submission (registry checks when a provider is set,
+#        otherwise automatic offline checks); off -> always wait for a reviewer.
+KYC_AUTO_APPROVE = env("KYC_AUTO_APPROVE", "on").lower()
+
 # Payments. "auto" uses Razorpay when keys are present, otherwise a simulated
 # top-up that is only allowed while DEBUG is on - so a production server with
 # missing keys can never mint wallet money.

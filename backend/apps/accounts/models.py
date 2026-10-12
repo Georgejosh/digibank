@@ -328,6 +328,16 @@ class KycProfile(models.Model):
     )
     rejection_reason = models.CharField(max_length=300, blank=True)
 
+    class Level(models.TextChoices):
+        REGISTRY = "REGISTRY", "Verified with Income Tax / UIDAI records"
+        AUTOMATED = "AUTOMATED", "Approved by automatic checks"
+        MANUAL = "MANUAL", "Approved by a reviewer"
+
+    # How the VERIFIED decision was reached (blank while pending).
+    verification_level = models.CharField(max_length=10, choices=Level.choices, blank=True)
+    pan_registered_name = models.CharField(max_length=150, blank=True)
+    aadhaar_verified = models.BooleanField(default=False)
+
     class Meta:
         db_table = "kyc_profiles"
 
@@ -343,3 +353,31 @@ class KycProfile(models.Model):
     @property
     def masked_pan(self):
         return f"XXXXXX{self.pan_last4}"
+
+
+class KycCheck(models.Model):
+    """
+    One real-time verification attempt (PAN lookup or Aadhaar OTP).
+
+    Submission trusts only these server-side records - never a "verified" flag
+    sent by the browser. Identity numbers are stored as keyed HMAC
+    fingerprints, so this table never holds a raw PAN or Aadhaar number.
+    """
+
+    class Kind(models.TextChoices):
+        PAN = "PAN", "PAN"
+        AADHAAR = "AADHAAR", "Aadhaar"
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="kyc_checks")
+    kind = models.CharField(max_length=8, choices=Kind.choices)
+    value_hash = models.CharField(max_length=64, db_index=True)
+    mode = models.CharField(max_length=10)  # cashfree / local
+    # True = confirmed by the registry, False = rejected, None = not checked / pending.
+    verified = models.BooleanField(null=True)
+    ref_id = models.CharField(max_length=64, blank=True)
+    result = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "kyc_checks"
+        ordering = ["-created_at"]

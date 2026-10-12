@@ -68,3 +68,13 @@ services:
         sync: false
       - key: DJANGO_SUPERUSER_PASSWORD
         sync: false
+      # Real-time KYC: Cashfree Verification keys (optional). Without them KYC
+      # is decided instantly from offline checks (format + Aadhaar checksum).
+      - key: CASHFREE_CLIENT_ID
+        sync: false
+      - key: CASHFREE_CLIENT_SECRET
+        sync: false
+      - key: CASHFREE_ENV
+        value: sandbox
+      - key: KYC_AUTO_APPROVE
+        value: "on"

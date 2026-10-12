@@ -50,6 +50,9 @@ export const ENDPOINTS = {
   kyc: {
     status: '/kyc/',
     submit: '/kyc/submit/',
+    checkPan: '/kyc/check-pan/',
+    aadhaarOtp: '/kyc/aadhaar/otp/',
+    aadhaarVerify: '/kyc/aadhaar/verify/',
   },
   withdrawals: {
     create: '/payments/withdrawals/',
