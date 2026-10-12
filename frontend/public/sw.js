@@ -12,8 +12,12 @@
  *
  * Bump CACHE_VERSION whenever the shell changes, so old caches get dropped.
  */
-const CACHE_VERSION = 'digibank-v2'; // bumped for the new logo
-const SHELL = ['/', '/index.html', '/manifest.json', '/favicon.png', '/logo.png', '/icons/icon-192.png'];
+const CACHE_VERSION = 'digibank-v3'; // new logo, versioned icon file names
+const SHELL = ['/', '/index.html', '/manifest.json', '/favicon-v2.png', '/logo.png', '/icons/digibank-192-v2.png'];
+// Always fetched from the network first: the browser compares the manifest and
+// its icons to decide when to refresh the installed app's home-screen icon, so
+// a cached copy would freeze the icon forever.
+const NETWORK_FIRST = new Set(['/manifest.json', '/logo.png', '/favicon-v2.png']);
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -40,6 +44,19 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return; // let fonts/CDN go to network
   if (url.pathname.startsWith('/api/')) return; // never cache money data
+
+  if (NETWORK_FIRST.has(url.pathname)) {
+    event.respondWith(
+      fetch(request)
+        .then((res) => {
+          const copy = res.clone();
+          caches.open(CACHE_VERSION).then((c) => c.put(request, copy));
+          return res;
+        })
+        .catch(() => caches.match(request))
+    );
+    return;
+  }
 
   if (request.mode === 'navigate') {
     event.respondWith(
