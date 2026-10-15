@@ -78,3 +78,10 @@ services:
         value: sandbox
       - key: KYC_AUTO_APPROVE
         value: "on"
+      # Login-code e-mail via Brevo (works for every user; free 300/day).
+      # Render's free plan blocks SMTP, so an HTTPS e-mail API is required.
+      - key: BREVO_API_KEY
+        sync: false
+      # The sender address you verified in Brevo, e.g. your Gmail address.
+      - key: OTP_FROM_EMAIL
+        sync: false

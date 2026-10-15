@@ -288,10 +288,17 @@ EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)
 EMAIL_HOST_USER = env("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", "")
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER or "no-reply@digibank.local")
-# Sender for login codes via Resend. The default test sender only delivers to
-# the Resend account owner; verify your own domain in Resend and set e.g.
-# OTP_FROM_EMAIL="DigiBank <no-reply@yourdomain.com>" to email every user.
-OTP_FROM_EMAIL = env("OTP_FROM_EMAIL", "DigiBank <onboarding@resend.dev>")
+# Login-code e-mail. Render's free plan blocks SMTP ports, so mail goes out
+# through an HTTPS e-mail API:
+#   brevo  - BREVO_API_KEY + a sender address verified in Brevo (any Gmail works,
+#            no domain needed). Delivers to every user. Free: 300 mails/day.
+#   resend - EMAIL_HOST_PASSWORD = Resend key. Its test sender onboarding@resend.dev
+#            only reaches the Resend account owner until a domain is verified.
+# EMAIL_PROVIDER=auto picks brevo when its key is set, otherwise resend.
+EMAIL_PROVIDER = env("EMAIL_PROVIDER", "auto").lower()
+BREVO_API_KEY = env("BREVO_API_KEY", "")
+OTP_FROM_EMAIL = env("OTP_FROM_EMAIL", "onboarding@resend.dev")
+OTP_FROM_NAME = env("OTP_FROM_NAME", "DigiBank")
 EMAIL_BACKEND = (
     "django.core.mail.backends.smtp.EmailBackend"
     if EMAIL_HOST_USER
