@@ -4,7 +4,7 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "https://digibank-api-80qu.onrender.com/api/$1" },
+    { "source": "/api/((?!mail-relay).*)", "destination": "https://digibank-api-80qu.onrender.com/api/$1" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [

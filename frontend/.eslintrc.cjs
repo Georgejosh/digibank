@@ -21,7 +21,7 @@ module.exports = {
     {
       // Build config runs in Node, not the browser, so `process` is legitimate
       // there even though it must never appear in src/.
-      files: ['vite.config.js', 'tailwind.config.js', 'postcss.config.js'],
+      files: ['vite.config.js', 'tailwind.config.js', 'postcss.config.js', 'api/**/*.js'],
       env: { node: true, browser: false },
     },
   ],

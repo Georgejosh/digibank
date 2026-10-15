@@ -295,7 +295,12 @@ DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER or "no-reply@digi
 #   resend - EMAIL_HOST_PASSWORD = Resend key. Its test sender onboarding@resend.dev
 #            only reaches the Resend account owner until a domain is verified.
 # EMAIL_PROVIDER=auto picks brevo when its key is set, otherwise resend.
+#   relay  - FREE: our own Vercel function sends through your Gmail
+#            (frontend/api/mail-relay.js). Needs MAIL_RELAY_SECRET here and
+#            GMAIL_USER + GMAIL_APP_PASSWORD + the same secret on Vercel.
 EMAIL_PROVIDER = env("EMAIL_PROVIDER", "auto").lower()
+MAIL_RELAY_URL = env("MAIL_RELAY_URL", "https://digibank-eta.vercel.app/api/mail-relay")
+MAIL_RELAY_SECRET = env("MAIL_RELAY_SECRET", "")
 BREVO_API_KEY = env("BREVO_API_KEY", "")
 OTP_FROM_EMAIL = env("OTP_FROM_EMAIL", "onboarding@resend.dev")
 OTP_FROM_NAME = env("OTP_FROM_NAME", "DigiBank")

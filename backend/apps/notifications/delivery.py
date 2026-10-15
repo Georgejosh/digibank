@@ -82,10 +82,12 @@ def _deliver_console(user, code, purpose):
 
 
 def email_provider():
-    """Which HTTPS e-mail API is configured: 'brevo', 'resend' or ''."""
+    """Which HTTPS e-mail route is configured: 'relay', 'brevo', 'resend' or ''."""
     choice = settings.EMAIL_PROVIDER
-    if choice in ("brevo", "resend"):
+    if choice in ("relay", "brevo", "resend"):
         return choice
+    if settings.MAIL_RELAY_SECRET:
+        return "relay"
     if settings.BREVO_API_KEY:
         return "brevo"
     if settings.EMAIL_HOST_PASSWORD.startswith("re_"):
@@ -144,7 +146,20 @@ def _post_json(url, headers, payload):
 def _deliver_email(user, code, purpose):
     provider = email_provider()
     name, address = _sender()
-    if provider == "brevo":
+    if provider == "relay":
+        # Our Vercel function sends through Gmail (free; Render blocks SMTP).
+        _post_json(
+            settings.MAIL_RELAY_URL,
+            {"X-Relay-Secret": settings.MAIL_RELAY_SECRET},
+            {
+                "to": user.email,
+                "subject": _subject(purpose),
+                "html": _html(user, code, purpose),
+                "text": _body(user, code, purpose),
+                "fromName": name,
+            },
+        )
+    elif provider == "brevo":
         _post_json(
             "https://api.brevo.com/v3/smtp/email",
             {"api-key": settings.BREVO_API_KEY},
@@ -169,7 +184,7 @@ def _deliver_email(user, code, purpose):
             },
         )
     else:
-        raise OtpDeliveryError("No e-mail provider is configured (set BREVO_API_KEY).")
+        raise OtpDeliveryError("No e-mail provider is configured (set MAIL_RELAY_SECRET).")
     return "email"
 
 

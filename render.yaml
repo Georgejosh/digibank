@@ -85,3 +85,7 @@ services:
       # The sender address you verified in Brevo, e.g. your Gmail address.
       - key: OTP_FROM_EMAIL
         sync: false
+      # FREE login-code e-mail: shared secret for the Gmail relay on Vercel
+      # (frontend/api/mail-relay.js). Use the same value in Vercel.
+      - key: MAIL_RELAY_SECRET
+        sync: false

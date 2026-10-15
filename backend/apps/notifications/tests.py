@@ -56,3 +56,21 @@ class OtpEmailTests(TestCase):
     @override_settings(DEBUG=True, OTP_DELIVERY_CHANNEL="email", BREVO_API_KEY="", EMAIL_HOST_PASSWORD="")
     def test_local_development_still_prints_the_code(self):
         self.assertEqual(delivery.send_otp(self.user, "482913", "LOGIN"), "console")
+
+
+class MailRelayTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(name="Reni K", email="reni4@gmail.com", phone="9876599999", password="Password123")
+
+    @override_settings(OTP_DELIVERY_CHANNEL="email", EMAIL_PROVIDER="auto", MAIL_RELAY_SECRET="relay-secret",
+                       MAIL_RELAY_URL="https://digibank-eta.vercel.app/api/mail-relay", BREVO_API_KEY="")
+    def test_relay_is_preferred_and_carries_the_secret(self):
+        with mock.patch("urllib.request.urlopen", return_value=FakeResponse()) as urlopen:
+            self.assertEqual(delivery.send_otp(self.user, "556677", "SIGNUP_VERIFICATION"), "email")
+        req = urlopen.call_args[0][0]
+        body = json.loads(req.data)
+        self.assertEqual(req.full_url, "https://digibank-eta.vercel.app/api/mail-relay")
+        self.assertEqual(req.get_header("X-relay-secret"), "relay-secret")
+        self.assertEqual(body["to"], "reni4@gmail.com")
+        self.assertIn("556677", body["html"])
+        self.assertEqual(body["subject"], "Verify your DigiBank account")
