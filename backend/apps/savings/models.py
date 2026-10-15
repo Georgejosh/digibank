@@ -10,6 +10,7 @@ drift and balances stop matching the ledger. Integers are exact.
 Display formatting (paise -> "Rs 1,250.00") is the mobile app's job, not the
 database's.
 """
+import secrets
 import uuid
 
 from django.conf import settings
@@ -21,6 +22,19 @@ class GroupStatus(models.TextChoices):
     ACTIVE = "ACTIVE", "Active"
     COMPLETED = "COMPLETED", "Completed"
     CLOSED = "CLOSED", "Closed"
+
+
+# No 0/O or 1/I/L, so a code read out over the phone cannot be mistyped.
+JOIN_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+
+
+def new_join_code():
+    """8 random characters from 31 = about 850 billion possible codes."""
+    return "".join(secrets.choice(JOIN_CODE_ALPHABET) for _ in range(8))
+
+
+def normalise_join_code(raw):
+    return "".join(ch for ch in str(raw or "").upper() if ch.isalnum())
 
 
 class SavingsGroup(models.Model):
@@ -39,6 +53,12 @@ class SavingsGroup(models.Model):
     status = models.CharField(
         max_length=16, choices=GroupStatus.choices, default=GroupStatus.ACTIVE
     )
+    # Shareable code a person types to ASK to join. It only ever creates a
+    # request - the creator still has to accept it.
+    join_code = models.CharField(max_length=8, unique=True, default=new_join_code)
+    # When on, every member is expected to pay an equal share of the target
+    # before the lock period ends (see apps.savings.clubs.split_plan).
+    split_equally = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -46,6 +66,10 @@ class SavingsGroup(models.Model):
 
     def __str__(self):
         return self.name
+
+    @property
+    def display_code(self):
+        return f"{self.join_code[:4]}-{self.join_code[4:]}"
 
     @property
     def member_count(self):
@@ -203,3 +227,64 @@ class SavingsAccount(models.Model):
         if self.owner_type == OwnerType.INDIVIDUAL:
             return [self.user_id]
         return list(self.group.members.values_list("user_id", flat=True))
+
+
+class ClubInviteKind(models.TextChoices):
+    INVITE = "INVITE", "Invited by the creator"
+    JOIN_REQUEST = "JOIN_REQUEST", "Asked to join with the club code"
+
+
+class ClubInviteStatus(models.TextChoices):
+    PENDING = "PENDING", "Pending"
+    ACCEPTED = "ACCEPTED", "Accepted"
+    DECLINED = "DECLINED", "Declined"
+    CANCELLED = "CANCELLED", "Cancelled"
+
+
+class ClubInvite(models.Model):
+    """
+    Every way into a club, with its outcome kept as history.
+
+    INVITE       - the creator invited an e-mail address; the person who owns
+                   that address must accept it from their own DigiBank account.
+    JOIN_REQUEST - someone typed the club code; the creator must accept them.
+
+    Either way two people agree before anyone becomes a member, because a
+    member's vote can block an emergency withdrawal of everyone's money.
+    """
+
+    group = models.ForeignKey(SavingsGroup, on_delete=models.CASCADE, related_name="invites")
+    kind = models.CharField(max_length=16, choices=ClubInviteKind.choices)
+    # Always lower-case. For an INVITE it is the address invited; for a
+    # JOIN_REQUEST it is the requester's own address.
+    email = models.EmailField()
+    # The DigiBank account behind `email`, once known.
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True, blank=True,
+        related_name="club_invites",
+    )
+    invited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="club_invites_sent",
+    )
+    status = models.CharField(
+        max_length=10, choices=ClubInviteStatus.choices, default=ClubInviteStatus.PENDING
+    )
+    email_sent = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    responded_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "club_invites"
+        ordering = ["-created_at"]
+        constraints = [
+            # One open request per address per club - no invite spam.
+            models.UniqueConstraint(
+                fields=["group", "email"],
+                condition=models.Q(status="PENDING"),
+                name="uniq_open_club_invite",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.kind} {self.email} -> {self.group} ({self.status})"

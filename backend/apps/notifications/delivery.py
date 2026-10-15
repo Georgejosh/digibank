@@ -143,18 +143,13 @@ def _post_json(url, headers, payload):
         raise OtpDeliveryError(f"E-mail provider not reachable: {exc}") from exc
 
 
-def _deliver_email(user, code, purpose):
+def send_email(to_email, to_name, subject, html, text):
+    """Send one e-mail through whichever HTTPS provider is configured."""
     provider = email_provider()
     name, address = _sender()
     if provider == "relay":
         # Our Vercel function sends through Gmail (free; Render blocks SMTP).
-        payload = {
-            "to": user.email,
-            "subject": _subject(purpose),
-            "html": _html(user, code, purpose),
-            "text": _body(user, code, purpose),
-            "fromName": name,
-        }
+        payload = {"to": to_email, "subject": subject, "html": html, "text": text, "fromName": name}
         if settings.GMAIL_USER and settings.GMAIL_APP_PASSWORD:
             # Pass-through: the relay needs no settings of its own.
             payload.update(smtpUser=settings.GMAIL_USER, smtpPass=settings.GMAIL_APP_PASSWORD)
@@ -165,26 +160,41 @@ def _deliver_email(user, code, purpose):
             {"api-key": settings.BREVO_API_KEY},
             {
                 "sender": {"name": name, "email": address},
-                "to": [{"email": user.email, "name": user.name}],
-                "subject": _subject(purpose),
-                "htmlContent": _html(user, code, purpose),
-                "textContent": _body(user, code, purpose),
+                "to": [{"email": to_email, "name": to_name or to_email}],
+                "subject": subject,
+                "htmlContent": html,
+                "textContent": text,
             },
         )
     elif provider == "resend":
         _post_json(
             "https://api.resend.com/emails",
             {"Authorization": f"Bearer {settings.EMAIL_HOST_PASSWORD}"},
-            {
-                "from": f"{name} <{address}>",
-                "to": [user.email],
-                "subject": _subject(purpose),
-                "html": _html(user, code, purpose),
-                "text": _body(user, code, purpose),
-            },
+            {"from": f"{name} <{address}>", "to": [to_email], "subject": subject, "html": html, "text": text},
         )
     else:
         raise OtpDeliveryError("No e-mail provider is configured (set GMAIL_USER and GMAIL_APP_PASSWORD).")
+
+
+def send_email_quietly(to_email, to_name, subject, html, text):
+    """
+    For courtesy mail (club invites). The in-app record is what counts, so a
+    failed send is logged rather than failing the request. Returns True if the
+    provider accepted it.
+    """
+    try:
+        send_email(to_email, to_name, subject, html, text)
+        return True
+    except OtpDeliveryError as exc:
+        if settings.DEBUG:
+            print(f"\n[DigiBank mail - not sent: {exc}]\nTo: {to_email}\nSubject: {subject}\n{text}\n")
+        else:
+            logger.warning("Courtesy e-mail to %s failed: %s", to_email, exc)
+        return False
+
+
+def _deliver_email(user, code, purpose):
+    send_email(user.email, user.name, _subject(purpose), _html(user, code, purpose), _body(user, code, purpose))
     return "email"
 
 

@@ -36,6 +36,12 @@ export const ENDPOINTS = {
     list: '/clubs/',
     detail: (id) => `/clubs/${id}/`,
     invite: (id) => `/clubs/${id}/invite/`,
+    split: (id) => `/clubs/${id}/split/`,
+    code: (id) => `/clubs/${id}/code/`,
+    join: '/clubs/join/',
+    invitations: '/clubs/invitations/',
+    respond: (id) => `/clubs/invitations/${id}/respond/`,
+    cancel: (id) => `/clubs/invitations/${id}/cancel/`,
   },
   deposits: {
     create: '/payments/deposits/',

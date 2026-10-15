@@ -33,6 +33,7 @@ const SavingsGoals = lazy(() => import('@/features/savings/SavingsGoals'));
 const NewSavingsGoal = lazy(() => import('@/features/savings/NewSavingsGoal'));
 const Clubs = lazy(() => import('@/features/clubs/Clubs'));
 const NewClub = lazy(() => import('@/features/clubs/NewClub'));
+const ClubDetail = lazy(() => import('@/features/clubs/ClubDetail'));
 const DigiLocker = lazy(() => import('@/features/digilocker/DigiLocker'));
 const Emergency = lazy(() => import('@/features/emergency/Emergency'));
 const Transactions = lazy(() => import('@/features/transactions/Transactions'));
@@ -76,6 +77,7 @@ export function AppRoutes() {
           <Route path="savings/new" element={<NewSavingsGoal />} />
           <Route path="clubs" element={<Clubs />} />
           <Route path="clubs/new" element={<NewClub />} />
+          <Route path="clubs/:clubId" element={<ClubDetail />} />
           <Route path="digilocker" element={<DigiLocker />} />
           <Route path="deposit" element={<ToDigiLocker mode="deposit" />} />
           <Route path="withdraw" element={<ToDigiLocker mode="withdraw" />} />

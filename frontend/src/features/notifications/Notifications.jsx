@@ -52,7 +52,9 @@ const TYPES = {
 const FALLBACK = { icon: Bell, tone: 'bg-ink-100 text-ink-600', to: '/app/dashboard' };
 
 function NotificationRow({ notification, onRead }) {
-  const { icon: Icon, tone, to } = TYPES[notification.type] ?? FALLBACK;
+  const { icon: Icon, tone, to: typeTo } = TYPES[notification.type] ?? FALLBACK;
+  // Club notifications open that club's page directly.
+  const to = notification.payload?.club_id ? `/app/clubs/${notification.payload.club_id}` : typeTo;
 
   return (
     <li>

@@ -17,6 +17,7 @@ from apps.accounts.urls import account_urlpatterns, auth_urlpatterns, kyc_urlpat
 from apps.emergency import views as emergency_views
 from apps.notifications import views as notification_views
 from apps.payments import views as payment_views
+from apps.savings import club_views
 from apps.savings import views as savings_views
 
 
@@ -46,6 +47,14 @@ urlpatterns = [
     path("api/savings/deposit-targets/", savings_views.deposit_targets, name="deposit-targets"),
     path("api/savings/withdrawal-targets/", savings_views.withdrawal_targets, name="withdrawal-targets"),
     path("api/clubs/", savings_views.clubs, name="clubs"),
+    path("api/clubs/join/", club_views.club_join, name="club-join"),
+    path("api/clubs/invitations/", club_views.my_invitations, name="club-invitations"),
+    path("api/clubs/invitations/<int:invite_id>/respond/", club_views.respond_invitation, name="club-invitation-respond"),
+    path("api/clubs/invitations/<int:invite_id>/cancel/", club_views.cancel_invitation, name="club-invitation-cancel"),
+    path("api/clubs/<int:club_id>/", savings_views.club_detail, name="club-detail"),
+    path("api/clubs/<int:club_id>/invite/", club_views.club_invite, name="club-invite"),
+    path("api/clubs/<int:club_id>/split/", club_views.club_split, name="club-split"),
+    path("api/clubs/<int:club_id>/code/", club_views.club_new_code, name="club-new-code"),
     path("api/dashboard/summary/", savings_views.dashboard_summary, name="dashboard-summary"),
 
 

@@ -1,10 +1,10 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { ArrowLeft, Mail, Users } from 'lucide-react';
+import { ArrowLeft, KeyRound, Mail, Users } from 'lucide-react';
 import { Card, CardBody } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Input, MoneyInput, Textarea } from '@/components/ui/Input';
+import { Checkbox, Input, MoneyInput, Textarea } from '@/components/ui/Input';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { EmergencyInfoCard } from './EmergencyInfoCard';
 import { useCreateClub } from '@/hooks/useClubs';
@@ -37,6 +37,7 @@ export function NewClub() {
       target_amount_rupees: undefined,
       deadline: '',
       invites: '',
+      split_equally: false,
     },
   });
 
@@ -44,17 +45,17 @@ export function NewClub() {
 
   const onSubmit = async (values) => {
     try {
-      await createClub.mutateAsync({
+      const club = await createClub.mutateAsync({
         name: values.name,
         goal_name: values.goal_name,
         target_amount_paise: rupeesToPaise(values.target_amount_rupees),
         deadline: values.deadline,
-        // TODO(backend): these go to POST /api/clubs/{id}/invite/, which
-        // creates pending group_members rows and emails each address. Stubbed
-        // in Phase 1 - the list is accepted but no invite is actually sent.
+        // Each address gets an invite in their DigiBank account plus an email;
+        // nobody becomes a member until they accept it themselves.
         invites: parseInviteEmails(values.invites),
+        split_equally: Boolean(values.split_equally),
       });
-      navigate('/app/clubs');
+      navigate(club?.id ? `/app/clubs/${club.id}` : '/app/clubs');
     } catch {
       // Surfaced by the toast in useCreateClub.
     }
@@ -121,11 +122,16 @@ export function NewClub() {
                 rows={3}
                 hint={
                   inviteCount > 0
-                    ? `${inviteCount} address${inviteCount === 1 ? '' : 'es'} - they'll get an invite to join.`
-                    : 'Optional. One email per line, or separated by commas.'
+                    ? `${inviteCount} address${inviteCount === 1 ? '' : 'es'} - each gets an invite in DigiBank and by email.`
+                    : 'Optional. One email per line, or separated by commas. You also get a club code to share.'
                 }
                 error={errors.invites?.message}
                 {...register('invites')}
+              />
+
+              <Checkbox
+                label="Split the target equally - every member pays the same share before the deadline (you can change this later)"
+                {...register('split_equally')}
               />
 
               <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:justify-end">
@@ -161,15 +167,20 @@ export function NewClub() {
             <CardBody>
               <h2 className="flex items-center gap-2 text-sm font-semibold text-brand-900">
                 <Mail aria-hidden="true" className="h-4 w-4 text-brand-600" />
-                Invites are stubbed
+                Two ways to bring people in
               </h2>
-              <p className="mt-2 text-sm leading-relaxed text-brand-800">
-                Phase 1 accepts the addresses but does not send anything yet. Wiring up
-                <code className="mx-1 rounded bg-white px-1 py-0.5 text-xs">
-                  POST /api/clubs/&#123;id&#125;/invite/
-                </code>
-                is a backend task.
-              </p>
+              <ul className="mt-2 space-y-2 text-sm leading-relaxed text-brand-800">
+                <li>
+                  <strong>Invite by email.</strong> The invite lands in their DigiBank account (and their inbox);
+                  they accept it themselves. No account yet? They are asked to sign up with that email.
+                </li>
+                <li className="flex gap-1.5">
+                  <KeyRound aria-hidden="true" className="mt-1 h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    <strong>Share the club code.</strong> Anyone with it can ask to join - you accept or decline.
+                  </span>
+                </li>
+              </ul>
             </CardBody>
           </Card>
 

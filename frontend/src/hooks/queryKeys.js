@@ -16,6 +16,7 @@ export const queryKeys = {
     all: ['clubs'],
     list: ['clubs', 'list'],
     detail: (id) => ['clubs', 'detail', id],
+    invitations: ['clubs', 'invitations'],
   },
   transactions: {
     all: ['transactions'],

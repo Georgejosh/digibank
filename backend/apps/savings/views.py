@@ -15,6 +15,7 @@ from .models import (
     SavingsGroup,
 )
 from .serializers import (
+    ClubDetailSerializer,
     ClubSerializer,
     CreateClubSerializer,
     CreateSavingsGoalSerializer,
@@ -29,6 +30,7 @@ def _my_clubs(user):
         .select_related("savings_account")
         .prefetch_related("members__user")
         .distinct()
+        .order_by("-created_at")
     )
 
 
@@ -123,18 +125,31 @@ def clubs(request):
                 group=group, user=request.user, role=GroupMember.Role.CREATOR
             )
 
+        if data.get("split_equally"):
+            group.split_equally = True
+            group.save(update_fields=["split_equally"])
+
+        from .club_views import send_invites
+
+        results = send_invites(group, request.user, data.get("invites", [])) if data.get("invites") else []
         group = _my_clubs(request.user).get(pk=group.pk)
         payload = ClubSerializer(group, context={"request": request}).data
-
-        # TODO(invites): create pending group_members rows and email each
-        # address. Accepted and echoed back for now so the frontend contract is
-        # already correct, but nothing is sent.
-        payload["invited"] = data.get("invites", [])
+        payload["invited"] = [r["email"] for r in results if r["result"] == "invited"]
         return Response(payload, status=status.HTTP_201_CREATED)
 
     return Response(
         ClubSerializer(_my_clubs(request.user), many=True, context={"request": request}).data
     )
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def club_detail(request, club_id):
+    """One club, members only. Non-members get 404, not a peek."""
+    group = _my_clubs(request.user).filter(pk=club_id).first()
+    if group is None:
+        return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+    return Response(ClubDetailSerializer(group, context={"request": request}).data)
 
 
 # ---------------------------------------------------------------------------

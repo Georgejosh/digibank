@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import GroupMember, SavingsAccount, SavingsGroup
+from .models import ClubInvite, GroupMember, SavingsAccount, SavingsGroup
 
 
 class GroupMemberInline(admin.TabularInline):
@@ -14,6 +14,13 @@ class SavingsGroupAdmin(admin.ModelAdmin):
     list_filter = ["status"]
     search_fields = ["name", "creator__email"]
     inlines = [GroupMemberInline]
+
+
+@admin.register(ClubInvite)
+class ClubInviteAdmin(admin.ModelAdmin):
+    list_display = ["group", "kind", "email", "status", "email_sent", "created_at"]
+    list_filter = ["kind", "status"]
+    search_fields = ["email", "group__name"]
 
 
 @admin.register(SavingsAccount)

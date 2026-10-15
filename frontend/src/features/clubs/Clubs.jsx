@@ -7,6 +7,7 @@ import { SkeletonGoalCard } from '@/components/ui/Skeleton';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { ClubCard } from './ClubCard';
 import { EmergencyInfoCard } from './EmergencyInfoCard';
+import { JoinWithCode, PendingInvitations } from './ClubInvitations';
 import { useClubs } from '@/hooks/useClubs';
 import { formatPaise } from '@/utils/money';
 
@@ -46,6 +47,8 @@ export function Clubs() {
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div>
+          <PendingInvitations />
+
           {!isPending && clubs?.length > 0 && (
             <Card className="mb-4 border-brand-200 bg-brand-50/60">
               <CardBody className="flex flex-wrap items-baseline justify-between gap-3">
@@ -77,7 +80,7 @@ export function Clubs() {
               <EmptyState
                 icon={Users}
                 title="You're not in any clubs yet"
-                description="Start one for a trip, a gift, or a household purchase, and invite the people saving for it with you."
+                description="Start one for a trip, a gift, or a household purchase and invite the people saving with you - or join a friend's club with its code."
                 action={
                   <Link
                     to="/app/clubs/new"
@@ -92,7 +95,8 @@ export function Clubs() {
           )}
         </div>
 
-        <aside>
+        <aside className="space-y-4">
+          <JoinWithCode />
           <EmergencyInfoCard />
         </aside>
       </div>

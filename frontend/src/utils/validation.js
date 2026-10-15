@@ -101,6 +101,7 @@ export const clubSchema = z.object({
         .filter(Boolean)
         .every((e) => z.string().email().safeParse(e).success);
     }, 'One of those email addresses is not valid'),
+  split_equally: z.boolean().optional(),
 });
 
 /**

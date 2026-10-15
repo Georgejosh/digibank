@@ -72,15 +72,24 @@ class CreateSavingsGoalSerializer(serializers.Serializer):
 
 class GroupMemberSerializer(serializers.ModelSerializer):
     name = serializers.CharField(source="user.name", read_only=True)
+    email = serializers.SerializerMethodField()
     user = serializers.CharField(source="user_id", read_only=True)
     contributed_paise = serializers.SerializerMethodField()
+    split = serializers.SerializerMethodField()
 
     class Meta:
         model = GroupMember
-        fields = ("id", "user", "name", "role", "joined_at", "contributed_paise")
+        fields = ("id", "user", "name", "email", "role", "joined_at", "contributed_paise", "split")
         read_only_fields = fields
 
+    def get_email(self, member):
+        # Fellow members see each other's address only on the detail page.
+        return member.user.email if self.context.get("show_emails") else ""
+
     def get_contributed_paise(self, member):
+        totals = self.context.get("contributions")
+        if totals is not None:
+            return totals.get(member.user_id, 0)
         account_id = self.context.get("savings_account_id")
         if account_id is None:
             account = getattr(member.group, "savings_account", None)
@@ -88,6 +97,11 @@ class GroupMemberSerializer(serializers.ModelSerializer):
         if account_id is None:
             return 0
         return contribution_paise(account_id, member.user_id)
+
+    def get_split(self, member):
+        from .club_views import member_split
+
+        return member_split(self.context.get("split_plan"), self.get_contributed_paise(member))
 
 
 class ClubSerializer(serializers.ModelSerializer):
@@ -122,19 +136,69 @@ class ClubSerializer(serializers.ModelSerializer):
             "savings_account_id",
             "my_contribution_paise",
             "my_role",
+            "join_code",
+            "split_equally",
+            "split",
+            "my_split",
+            "pending_invites",
         )
         read_only_fields = fields
+
+    join_code = serializers.SerializerMethodField()
+    split = serializers.SerializerMethodField()
+    my_split = serializers.SerializerMethodField()
+    pending_invites = serializers.SerializerMethodField()
 
     def _account(self, group):
         return getattr(group, "savings_account", None)
 
+    def _is_creator(self, group):
+        return group.creator_id == self.context["request"].user.id
+
+    def _contributions(self, group):
+        cache = self.context.setdefault("_contrib_cache", {})
+        if group.pk not in cache:
+            from .club_views import contributions_by_user
+
+            account = self._account(group)
+            cache[group.pk] = contributions_by_user(account.id) if account else {}
+        return cache[group.pk]
+
+    def _plan(self, group):
+        from .club_views import split_plan
+
+        return split_plan(group, self._account(group), len(group.members.all()))
+
     def get_members(self, group):
         account = self._account(group)
         return GroupMemberSerializer(
-            group.members.select_related("user").all(),
+            group.members.all(),
             many=True,
-            context={**self.context, "savings_account_id": account.id if account else None},
+            context={
+                **self.context,
+                "savings_account_id": account.id if account else None,
+                "contributions": self._contributions(group),
+                "split_plan": self._plan(group),
+            },
         ).data
+
+    def get_join_code(self, group):
+        # Only the creator hands the code out.
+        return group.display_code if self._is_creator(group) else None
+
+    def get_split(self, group):
+        return self._plan(group)
+
+    def get_my_split(self, group):
+        from .club_views import member_split
+
+        mine = self._contributions(group).get(self.context["request"].user.id, 0)
+        return member_split(self._plan(group), mine)
+
+    def get_pending_invites(self, group):
+        if not self._is_creator(group):
+            return 0
+        return group.invites.filter(status="PENDING").count()
 
     def get_goal_name(self, group):
         account = self._account(group)
@@ -161,10 +225,9 @@ class ClubSerializer(serializers.ModelSerializer):
         return account.id if account else None
 
     def get_my_contribution_paise(self, group):
-        account = self._account(group)
-        if account is None:
+        if self._account(group) is None:
             return 0
-        return contribution_paise(account.id, self.context["request"].user.id)
+        return self._contributions(group).get(self.context["request"].user.id, 0)
 
     def get_my_role(self, group):
         member = next(
@@ -180,8 +243,9 @@ class CreateClubSerializer(serializers.Serializer):
     target_amount_paise = serializers.IntegerField(min_value=1)
     deadline = serializers.DateField(required=False, allow_null=True)
     invites = serializers.ListField(
-        child=serializers.EmailField(), required=False, allow_empty=True, default=list
+        child=serializers.EmailField(), required=False, allow_empty=True, default=list, max_length=20
     )
+    split_equally = serializers.BooleanField(required=False, default=False)
 
     def validate_deadline(self, value):
         from django.utils import timezone
@@ -189,3 +253,32 @@ class CreateClubSerializer(serializers.Serializer):
         if value and value <= timezone.localdate():
             raise serializers.ValidationError("Pick a date in the future.")
         return value
+
+
+class ClubDetailSerializer(ClubSerializer):
+    """Everything on one club's page: members, shares and invite history."""
+
+    invites = serializers.SerializerMethodField()
+    join_requests = serializers.SerializerMethodField()
+
+    class Meta(ClubSerializer.Meta):
+        fields = ClubSerializer.Meta.fields + ("invites", "join_requests")
+        read_only_fields = fields
+
+    def get_members(self, group):
+        self.context["show_emails"] = True
+        return super().get_members(group)
+
+    def _history(self, group, kind):
+        from .club_views import invite_row
+
+        if not self._is_creator(group):
+            return []
+        rows = group.invites.filter(kind=kind).select_related("user")[:100]
+        return [invite_row(r) for r in rows]
+
+    def get_invites(self, group):
+        return self._history(group, "INVITE")
+
+    def get_join_requests(self, group):
+        return self._history(group, "JOIN_REQUEST")

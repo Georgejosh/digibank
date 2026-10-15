@@ -88,7 +88,10 @@ export function DigiLocker() {
   const [selectedId, setSelectedId] = useState(
     location.state?.savingsAccountId ?? searchParams.get('account') ?? null
   );
-  const [amount, setAmount] = useState('');
+  // A club's "Pay my share" button arrives with the amount already worked out.
+  const [amount, setAmount] = useState(
+    location.state?.amountPaise ? String(location.state.amountPaise / 100) : ''
+  );
   const [touched, setTouched] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [receipt, setReceipt] = useState(null);
