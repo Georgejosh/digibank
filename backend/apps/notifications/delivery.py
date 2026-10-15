@@ -86,7 +86,7 @@ def email_provider():
     choice = settings.EMAIL_PROVIDER
     if choice in ("relay", "brevo", "resend"):
         return choice
-    if settings.MAIL_RELAY_SECRET:
+    if settings.MAIL_RELAY_SECRET or (settings.GMAIL_USER and settings.GMAIL_APP_PASSWORD):
         return "relay"
     if settings.BREVO_API_KEY:
         return "brevo"
@@ -148,17 +148,17 @@ def _deliver_email(user, code, purpose):
     name, address = _sender()
     if provider == "relay":
         # Our Vercel function sends through Gmail (free; Render blocks SMTP).
-        _post_json(
-            settings.MAIL_RELAY_URL,
-            {"X-Relay-Secret": settings.MAIL_RELAY_SECRET},
-            {
-                "to": user.email,
-                "subject": _subject(purpose),
-                "html": _html(user, code, purpose),
-                "text": _body(user, code, purpose),
-                "fromName": name,
-            },
-        )
+        payload = {
+            "to": user.email,
+            "subject": _subject(purpose),
+            "html": _html(user, code, purpose),
+            "text": _body(user, code, purpose),
+            "fromName": name,
+        }
+        if settings.GMAIL_USER and settings.GMAIL_APP_PASSWORD:
+            # Pass-through: the relay needs no settings of its own.
+            payload.update(smtpUser=settings.GMAIL_USER, smtpPass=settings.GMAIL_APP_PASSWORD)
+        _post_json(settings.MAIL_RELAY_URL, {"X-Relay-Secret": settings.MAIL_RELAY_SECRET}, payload)
     elif provider == "brevo":
         _post_json(
             "https://api.brevo.com/v3/smtp/email",
@@ -184,7 +184,7 @@ def _deliver_email(user, code, purpose):
             },
         )
     else:
-        raise OtpDeliveryError("No e-mail provider is configured (set MAIL_RELAY_SECRET).")
+        raise OtpDeliveryError("No e-mail provider is configured (set GMAIL_USER and GMAIL_APP_PASSWORD).")
     return "email"
 
 

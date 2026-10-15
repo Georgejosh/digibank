@@ -74,3 +74,13 @@ class MailRelayTests(TestCase):
         self.assertEqual(body["to"], "reni4@gmail.com")
         self.assertIn("556677", body["html"])
         self.assertEqual(body["subject"], "Verify your DigiBank account")
+
+    @override_settings(OTP_DELIVERY_CHANNEL="email", EMAIL_PROVIDER="auto", MAIL_RELAY_SECRET="", BREVO_API_KEY="",
+                       GMAIL_USER="georgejoshwafrankline@gmail.com", GMAIL_APP_PASSWORD="abcd efgh ijkl mnop",
+                       MAIL_RELAY_URL="https://digibank-eta.vercel.app/api/mail-relay")
+    def test_gmail_pass_through_needs_only_render_settings(self):
+        with mock.patch("urllib.request.urlopen", return_value=FakeResponse()) as urlopen:
+            self.assertEqual(delivery.send_otp(self.user, "112233", "LOGIN"), "email")
+        body = json.loads(urlopen.call_args[0][0].data)
+        self.assertEqual(body["smtpUser"], "georgejoshwafrankline@gmail.com")
+        self.assertEqual(body["to"], "reni4@gmail.com")

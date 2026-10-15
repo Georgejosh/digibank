@@ -301,6 +301,10 @@ DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER or "no-reply@digi
 EMAIL_PROVIDER = env("EMAIL_PROVIDER", "auto").lower()
 MAIL_RELAY_URL = env("MAIL_RELAY_URL", "https://digibank-eta.vercel.app/api/mail-relay")
 MAIL_RELAY_SECRET = env("MAIL_RELAY_SECRET", "")
+# Simplest free setup: just these two in Render. Django passes them to the
+# Vercel relay over HTTPS for each send; nothing needs configuring on Vercel.
+GMAIL_USER = env("GMAIL_USER", "")
+GMAIL_APP_PASSWORD = env("GMAIL_APP_PASSWORD", "")
 BREVO_API_KEY = env("BREVO_API_KEY", "")
 OTP_FROM_EMAIL = env("OTP_FROM_EMAIL", "onboarding@resend.dev")
 OTP_FROM_NAME = env("OTP_FROM_NAME", "DigiBank")
